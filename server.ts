@@ -334,6 +334,176 @@ app.get("/api/dataset", (_req: Request, res: Response) => {
   res.json(DATASET);
 });
 
+// Recalculate evaluation benchmark on backend with real-time SSE progress streaming
+app.get("/api/evaluation/recalculate", async (_req: Request, res: Response) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  const targetWords = ["आम", "सोना", "हार", "कल", "उत्तर", "फल", "पत्र", "बाल", "तीर"];
+  const wordResults: Array<{
+    word: string;
+    test_sentences: number;
+    baseline_accuracy: string;
+    lesk_accuracy: string;
+    naive_bayes_accuracy: string;
+  }> = [];
+
+  let totalTestSentences = 0;
+  let totalLeskCorrect = 0;
+  let totalNBCorrect = 0;
+
+  try {
+    for (let wordIdx = 0; wordIdx < targetWords.length; wordIdx++) {
+      const word = targetWords[wordIdx];
+      const wordRows = DATASET.filter((r) => r.target_word === word);
+      const n = wordRows.length;
+
+      let leskCorrect = 0;
+      let nbCorrect = 0;
+
+      // 5-fold cross-validation out-of-fold evaluation on backend
+      const folds = 5;
+      for (let fold = 0; fold < folds; fold++) {
+        const testRows = wordRows.filter((_, idx) => idx % folds === fold);
+        const trainRows = wordRows.filter((_, idx) => idx % folds !== fold);
+
+        // Train fold NB model
+        const classDocCounts: Record<string, number> = {};
+        const wordCountsPerClass: Record<string, Record<string, number>> = {};
+        const totalWordsPerClass: Record<string, number> = {};
+        const vocab = new Set<string>();
+        const classes = Array.from(new Set(trainRows.map((r) => r.sense))).sort();
+
+        for (const c of classes) {
+          classDocCounts[c] = 0;
+          wordCountsPerClass[c] = {};
+          totalWordsPerClass[c] = 0;
+        }
+
+        for (const r of trainRows) {
+          classDocCounts[r.sense]++;
+          const cWindow = contextWindow(r.sentence, word, 4);
+          const tokens = cWindow.split(/\s+/).filter(Boolean);
+
+          for (const tok of tokens) {
+            vocab.add(tok);
+            wordCountsPerClass[r.sense][tok] = (wordCountsPerClass[r.sense][tok] || 0) + 1;
+            totalWordsPerClass[r.sense]++;
+          }
+        }
+
+        const vocabSize = vocab.size;
+
+        // Test on testRows
+        for (const testR of testRows) {
+          // 1. Lesk prediction
+          const leskPred = lesk(word, testR.sentence);
+          if (leskPred.sense === testR.sense) {
+            leskCorrect++;
+          }
+
+          // 2. Naive Bayes prediction
+          const cWindow = contextWindow(testR.sentence, word, 4);
+          const contextTokens = cWindow.split(/\s+/).filter(Boolean);
+
+          let bestClass = classes[0];
+          let bestLogScore = -Infinity;
+
+          for (const c of classes) {
+            const prior = Math.log(classDocCounts[c] / trainRows.length);
+            let logLikelihood = prior;
+            const denom = totalWordsPerClass[c] + vocabSize;
+
+            for (const tok of contextTokens) {
+              const count = wordCountsPerClass[c]?.[tok] || 0;
+              logLikelihood += Math.log((count + 1) / denom);
+            }
+
+            if (logLikelihood > bestLogScore) {
+              bestLogScore = logLikelihood;
+              bestClass = c;
+            }
+          }
+
+          if (bestClass === testR.sense) {
+            nbCorrect++;
+          }
+        }
+      }
+
+      const leskAcc = ((leskCorrect / n) * 100).toFixed(1) + "%";
+      const nbAcc = ((nbCorrect / n) * 100).toFixed(1) + "%";
+
+      totalTestSentences += n;
+      totalLeskCorrect += leskCorrect;
+      totalNBCorrect += nbCorrect;
+
+      const itemResult = {
+        word,
+        test_sentences: n,
+        baseline_accuracy: "50.0%",
+        lesk_accuracy: leskAcc,
+        naive_bayes_accuracy: nbAcc,
+      };
+
+      wordResults.push(itemResult);
+
+      // Send SSE progress event
+      res.write(
+        `data: ${JSON.stringify({
+          type: "progress",
+          word,
+          completedWords: wordIdx + 1,
+          totalWords: targetWords.length,
+          wordResult: itemResult,
+        })}\n\n`
+      );
+
+      // Brief delay to allow smooth progress rendering in UI
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+
+    // Overall summary across all 900 sentences
+    const overallItem = {
+      word: "Overall",
+      test_sentences: totalTestSentences,
+      baseline_accuracy: "50.0%",
+      lesk_accuracy: ((totalLeskCorrect / totalTestSentences) * 100).toFixed(1) + "%",
+      naive_bayes_accuracy: ((totalNBCorrect / totalTestSentences) * 100).toFixed(1) + "%",
+    };
+
+    const finalResults = [...wordResults, overallItem];
+
+    // Write updated results to results/evaluation.csv on disk
+    const evalCsvLines = [
+      "word,test_sentences,baseline_accuracy,lesk_accuracy,naive_bayes_accuracy",
+      ...finalResults.map(
+        (r) =>
+          `${r.word},${r.test_sentences},${r.baseline_accuracy},${r.lesk_accuracy},${r.naive_bayes_accuracy}`
+      ),
+    ];
+
+    fs.mkdirSync(RESULTS_DIR, { recursive: true });
+    fs.writeFileSync(path.join(RESULTS_DIR, "evaluation.csv"), evalCsvLines.join("\n") + "\n", "utf-8");
+
+    // Send complete event
+    res.write(
+      `data: ${JSON.stringify({
+        type: "complete",
+        results: finalResults,
+      })}\n\n`
+    );
+
+    res.end();
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Evaluation failed";
+    res.write(`data: ${JSON.stringify({ type: "error", error: errorMsg })}\n\n`);
+    res.end();
+  }
+});
+
 // Expose evaluation metrics from filesystem
 app.get("/api/evaluation", (_req: Request, res: Response) => {
   const evalPath = path.join(RESULTS_DIR, "evaluation.csv");

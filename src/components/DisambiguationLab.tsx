@@ -129,6 +129,48 @@ export const DisambiguationLab: React.FC<DisambiguationLabProps> = ({
         </p>
       </section>
 
+      {/* Curated Examples (placed above Input Sentence) */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] font-bold tracking-[0.14em] text-[#9b7950] uppercase">
+            TRY AN EXAMPLE
+          </div>
+          <div className="text-xs text-[#8a857c]">
+            Click to send to backend for evaluation
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {CURATED_EXAMPLES.map((ex, idx) => {
+            const isSelected = sentence === ex.sentence && target === ex.word;
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => handleSelectExample(ex)}
+                className={`text-left p-3 rounded-xl border text-xs transition-all ${
+                  isSelected
+                    ? "bg-[#f5efe4] border-[#cbb391] text-[#171717] shadow-sm"
+                    : "bg-white/60 hover:bg-white border-[#e1dcd2] text-[#555] hover:border-[#b8a17d]"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-bold text-[#9b7950] text-sm">
+                    {ex.word}
+                  </span>
+                  <span className="text-[10px] text-[#8a857c]">
+                    {ex.senseLabel}
+                  </span>
+                </div>
+                <div className="line-clamp-2 text-[#333] leading-relaxed">
+                  {ex.sentence}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Main Workspace Input Card */}
       <div className="bg-white/85 border border-[#e3ded4] rounded-2xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(50,43,31,0.06)] backdrop-blur-sm">
         <div className="flex justify-between items-start mb-5">
@@ -221,48 +263,6 @@ export const DisambiguationLab: React.FC<DisambiguationLabProps> = ({
           )}
         </div>
       </div>
-
-      {/* Curated Examples */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="text-[11px] font-bold tracking-[0.14em] text-[#9b7950] uppercase">
-            TRY AN EXAMPLE
-          </div>
-          <div className="text-xs text-[#8a857c]">
-            Click to send to backend for evaluation
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-          {CURATED_EXAMPLES.map((ex, idx) => {
-            const isSelected = sentence === ex.sentence && target === ex.word;
-            return (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => handleSelectExample(ex)}
-                className={`text-left p-3 rounded-xl border text-xs transition-all ${
-                  isSelected
-                    ? "bg-[#f5efe4] border-[#cbb391] text-[#171717] shadow-sm"
-                    : "bg-white/60 hover:bg-white border-[#e1dcd2] text-[#555] hover:border-[#b8a17d]"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="font-bold text-[#9b7950] text-sm">
-                    {ex.word}
-                  </span>
-                  <span className="text-[10px] text-[#8a857c]">
-                    {ex.senseLabel}
-                  </span>
-                </div>
-                <div className="line-clamp-2 text-[#333] leading-relaxed">
-                  {ex.sentence}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </section>
 
       {/* Disambiguation Results */}
       {result && (
