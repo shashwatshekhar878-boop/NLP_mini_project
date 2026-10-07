@@ -1,0 +1,6 @@
+{
+  "name": "Hindi Word Sense Disambiguation",
+  "description": "Context-aware Hindi word sense disambiguation comparing Simplified Lesk and Multinomial Naive Bayes models across polysemous Hindi vocabulary.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
