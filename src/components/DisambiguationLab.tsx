@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Check, RefreshCw } from "lucide-react";
+import { Check, RefreshCw, Languages, ArrowDown } from "lucide-react";
 
 interface ExampleItem {
   sentence: string;
@@ -57,6 +57,107 @@ export const DisambiguationLab: React.FC<DisambiguationLabProps> = ({
   const [result, setResult] = useState<PredictResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+
+  // Translation Subsection State (Frontend-only feature)
+  const [englishText, setEnglishText] = useState<string>("");
+  const [isTranslating, setIsTranslating] = useState<boolean>(false);
+  const [translateStatus, setTranslateStatus] = useState<string>("");
+
+  const handleTranslate = async () => {
+    const textToTranslate = englishText.trim();
+    if (!textToTranslate) {
+      setTranslateStatus("Please enter some English text first.");
+      return;
+    }
+
+    setIsTranslating(true);
+    setTranslateStatus("Translating to Hindi...");
+
+    try {
+      let translated = "";
+
+      // 1. Primary: LibreTranslate public API endpoint
+      try {
+        const response = await fetch("https://libretranslate.de/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            q: textToTranslate,
+            source: "en",
+            target: "hi",
+            format: "text",
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.translatedText) {
+            translated = data.translatedText;
+          }
+        }
+      } catch (ltErr) {
+        console.warn("LibreTranslate primary endpoint attempt:", ltErr);
+      }
+
+      // 2. Secondary public LibreTranslate mirror
+      if (!translated) {
+        try {
+          const mirrorRes = await fetch("https://translate.terraprint.co/translate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              q: textToTranslate,
+              source: "en",
+              target: "hi",
+              format: "text",
+            }),
+          });
+          if (mirrorRes.ok) {
+            const mData = await mirrorRes.json();
+            if (mData && mData.translatedText) {
+              translated = mData.translatedText;
+            }
+          }
+        } catch (mErr) {
+          console.warn("LibreTranslate mirror attempt:", mErr);
+        }
+      }
+
+      // 3. Reliable free open endpoint fallback
+      if (!translated) {
+        const fallbackRes = await fetch(
+          `https://api.mymemory.translated.net/get?q=${encodeURIComponent(textToTranslate)}&langpair=en|hi`
+        );
+        if (fallbackRes.ok) {
+          const fData = await fallbackRes.json();
+          if (fData?.responseData?.translatedText) {
+            translated = fData.responseData.translatedText;
+          }
+        }
+      }
+
+      if (!translated) {
+        throw new Error("Could not connect to translation service. Please check your connection or type directly in Hindi.");
+      }
+
+      // Fill the Hindi input text box with the translated sentence
+      setSentence(translated);
+      setTranslateStatus(`✓ Translation complete! Filled into Hindi input text box.`);
+
+      // Check if any of the target words are contained in the translated text and auto-select
+      for (const w of TARGET_WORDS) {
+        if (translated.includes(w)) {
+          setTarget(w);
+          break;
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Translation failed";
+      setTranslateStatus(`Error: ${msg}`);
+    } finally {
+      setIsTranslating(false);
+    }
+  };
 
   const analyze = async (sentToAnalyze: string, targetToAnalyze: string) => {
     const trimmedSent = sentToAnalyze.trim();
@@ -188,7 +289,72 @@ export const DisambiguationLab: React.FC<DisambiguationLabProps> = ({
         </div>
 
         <div className="space-y-4">
+          {/* Translation Sub-Section (English to Hindi Machine Translation) */}
+          <div className="p-4 bg-[#faf8f4] border border-[#e8e2d5] rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Languages className="w-4 h-4 text-[#9b7950]" />
+                <span className="text-xs font-bold text-[#171717] tracking-tight">
+                  English to Hindi Translation (Optional)
+                </span>
+              </div>
+              <span className="text-[10px] text-[#8a857c]">
+                LibreTranslate API · Free Machine Translation
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <input
+                type="text"
+                value={englishText}
+                onChange={(e) => setEnglishText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleTranslate();
+                  }
+                }}
+                placeholder="Type English sentence here (e.g. 'I bought ripe mangoes from the market')..."
+                className="flex-1 px-3.5 py-2.5 bg-white border border-[#ddd8ce] rounded-lg text-sm text-[#202020] placeholder-gray-400 outline-none focus:border-[#b29367] transition-all"
+              />
+              <button
+                type="button"
+                onClick={handleTranslate}
+                disabled={isTranslating || !englishText.trim()}
+                className="px-4 py-2.5 bg-[#9b7950] hover:bg-[#85653e] text-white text-xs font-semibold rounded-lg shadow-2xs hover:shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shrink-0"
+              >
+                {isTranslating ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Translating...</span>
+                  </>
+                ) : (
+                  <>
+                    <Languages className="w-3.5 h-3.5" />
+                    <span>Translate & Fill Hindi Input</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {translateStatus && (
+              <div className={`text-[11px] font-medium leading-relaxed ${
+                translateStatus.startsWith("✓") ? "text-[#2e7d32]" : translateStatus.startsWith("Error") ? "text-[#c62828]" : "text-[#9b7950]"
+              }`}>
+                {translateStatus}
+              </div>
+            )}
+          </div>
+
           <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-[#777168] uppercase tracking-wider">
+                Hindi Sentence (हिंदी वाक्य)
+              </label>
+              <span className="text-[10px] text-[#8a857c]">
+                Target for WSD Evaluation
+              </span>
+            </div>
             <textarea
               value={sentence}
               onChange={(e) => setSentence(e.target.value)}
